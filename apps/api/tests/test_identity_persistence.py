@@ -519,6 +519,35 @@ async def test_policy_decision_records_a_denial_with_reason(
     assert decision.id in {d.id for d in denials}
 
 
+async def test_every_audit_action_value_is_accepted_by_the_database(
+    db_session: AsyncSession, identity: IdentityFixture
+):
+    """Guard against adding a Python enum member without migrating the CHECK.
+
+    A StrEnum addition changes nothing in the database, and Alembic autogenerate
+    does not detect non-native enum constraint drift, so nothing else would
+    catch it until the first insert fails in production.
+    """
+    for action in AuditAction:
+        await identity_repo.record_audit_event(
+            db_session, tenant_id=identity.alpha.tenant.id, action=action
+        )
+    await db_session.flush()
+
+
+async def test_every_project_action_value_is_accepted_by_the_database(
+    db_session: AsyncSession, identity: IdentityFixture
+):
+    for action in ProjectAction:
+        await identity_repo.record_policy_decision(
+            db_session,
+            tenant_id=identity.alpha.tenant.id,
+            action=action,
+            decision=PolicyDecisionOutcome.ALLOW,
+        )
+    await db_session.flush()
+
+
 async def test_audit_listing_can_narrow_to_one_project(
     db_session: AsyncSession, identity: IdentityFixture
 ):

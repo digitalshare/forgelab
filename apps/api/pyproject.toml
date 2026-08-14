@@ -16,6 +16,8 @@ dependencies = [
     "httpx>=0.28",
     "daytona>=0.20",
     "structlog>=24.4",
+    "pyjwt>=2.10",
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]
