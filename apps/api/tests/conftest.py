@@ -19,10 +19,13 @@ from pathlib import Path
 
 import pytest
 from alembic.config import Config
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from alembic import command
+from forgelab_api.db.session import get_session
+from forgelab_api.main import create_app
 
 TEST_DATABASE_URL = os.getenv(
     "FORGELAB_TEST_DATABASE_URL",
@@ -103,7 +106,15 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
     """
     async with engine.connect() as connection:
         transaction = await connection.begin()
-        session = AsyncSession(bind=connection, expire_on_commit=False)
+        session = AsyncSession(
+            bind=connection,
+            expire_on_commit=False,
+            # Route handlers call commit(). Without this the commit would end
+            # the outer transaction and the test's changes would persist;
+            # create_savepoint makes each commit release a SAVEPOINT instead,
+            # so the outer rollback still undoes everything.
+            join_transaction_mode="create_savepoint",
+        )
         try:
             yield session
         finally:
@@ -112,3 +123,24 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
             # already deassociated; rolling it back again warns noisily.
             if transaction.is_active:
                 await transaction.rollback()
+
+
+@pytest.fixture
+async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """An HTTP client for the app, sharing the test's database session.
+
+    httpx over ASGI rather than starlette's TestClient: TestClient drives the
+    app from a separate thread and event loop, and an AsyncSession cannot be
+    shared across loops. This keeps request handling in the same loop as the
+    fixture that owns the session.
+    """
+    app = create_app()
+
+    async def _session_override() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = _session_override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
+    app.dependency_overrides.clear()

@@ -7,7 +7,8 @@ the SSE event stream (WO-005), evaluation results (WO-045), and the PR gate
 
 from fastapi import APIRouter
 
-from forgelab_api.api.routes import health
+from forgelab_api.api.routes import auth, health
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(auth.router)

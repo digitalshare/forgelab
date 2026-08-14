@@ -26,8 +26,10 @@ __all__ = [
     "MAX_RUNTIME",
     "MAX_RUNTIME_SECONDS",
     "MAX_COMMANDS",
-    "SESSION_TOKEN_TTL",
-    "SESSION_TOKEN_TTL_SECONDS",
+    "ACCESS_TOKEN_TTL",
+    "ACCESS_TOKEN_TTL_SECONDS",
+    "REFRESH_TOKEN_TTL",
+    "REFRESH_TOKEN_TTL_SECONDS",
     "SANDBOX_CREDENTIAL_TTL",
     "SANDBOX_CREDENTIAL_TTL_SECONDS",
     "GITHUB_INSTALLATION_TOKEN_TTL",
@@ -81,9 +83,15 @@ MAX_COMMANDS: Final[int] = 200
 # Credential lifetimes
 # --------------------------------------------------------------------------
 
-#: Dashboard session lifetime.
-SESSION_TOKEN_TTL: Final[timedelta] = timedelta(hours=12)
-SESSION_TOKEN_TTL_SECONDS: Final[int] = int(SESSION_TOKEN_TTL.total_seconds())
+#: Bearer token lifetime. Deliberately short — access tokens are stateless, so a
+#: leaked one stays usable until it expires.
+ACCESS_TOKEN_TTL: Final[timedelta] = timedelta(minutes=15)
+ACCESS_TOKEN_TTL_SECONDS: Final[int] = int(ACCESS_TOKEN_TTL.total_seconds())
+
+#: Refresh cookie lifetime, and the expiry stamped on the server-side session
+#: row. Rotation on every refresh keeps the window of a stolen token small.
+REFRESH_TOKEN_TTL: Final[timedelta] = timedelta(days=7)
+REFRESH_TOKEN_TTL_SECONDS: Final[int] = int(REFRESH_TOKEN_TTL.total_seconds())
 
 #: Lease handed to a sandbox. Deliberately just longer than MAX_RUNTIME so a
 #: credential cannot outlive the run it was minted for by any meaningful margin.
@@ -173,6 +181,10 @@ class AuditAction(StrEnum):
     CREDENTIAL_ISSUED = "credential.issued"
     CREDENTIAL_REVOKED = "credential.revoked"
     RUN_LIMIT_REACHED = "run.limit_reached"
+    SESSION_ISSUED = "session.issued"
+    SESSION_REFRESHED = "session.refreshed"
+    SESSION_REVOKED = "session.revoked"
+    SESSION_REPLAY_DETECTED = "session.replay_detected"
 
 
 class RunBoundBreach(StrEnum):

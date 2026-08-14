@@ -7,6 +7,8 @@ from datetime import timedelta
 import pytest
 
 from forgelab_api.domains.constants import (
+    ACCESS_TOKEN_TTL,
+    ACCESS_TOKEN_TTL_SECONDS,
     GITHUB_INSTALLATION_TOKEN_TTL,
     GITHUB_INSTALLATION_TOKEN_TTL_SECONDS,
     LANGUAGE_ALIASES,
@@ -15,11 +17,11 @@ from forgelab_api.domains.constants import (
     MAX_RUNTIME,
     MAX_RUNTIME_SECONDS,
     MVP_AGENT_COUNT,
+    REFRESH_TOKEN_TTL,
+    REFRESH_TOKEN_TTL_SECONDS,
     SANDBOX_CREDENTIAL_TTL,
     SANDBOX_CREDENTIAL_TTL_SECONDS,
     SENSITIVE_ACTIONS,
-    SESSION_TOKEN_TTL,
-    SESSION_TOKEN_TTL_SECONDS,
     AuditAction,
     ProjectAction,
     ProjectRole,
@@ -64,11 +66,19 @@ def test_run_bounds_match_the_product_limits():
 def test_duration_companions_are_expressed_in_seconds():
     """The `_SECONDS` values must agree with their timedelta, not restate a guess."""
     assert MAX_RUNTIME_SECONDS == 900
-    assert SESSION_TOKEN_TTL_SECONDS == int(SESSION_TOKEN_TTL.total_seconds())
+    assert ACCESS_TOKEN_TTL_SECONDS == int(ACCESS_TOKEN_TTL.total_seconds())
+    assert REFRESH_TOKEN_TTL_SECONDS == int(REFRESH_TOKEN_TTL.total_seconds())
     assert SANDBOX_CREDENTIAL_TTL_SECONDS == int(SANDBOX_CREDENTIAL_TTL.total_seconds())
     assert GITHUB_INSTALLATION_TOKEN_TTL_SECONDS == int(
         GITHUB_INSTALLATION_TOKEN_TTL.total_seconds()
     )
+
+
+def test_access_and_refresh_ttls_match_the_session_contract():
+    """WO-003 fixes these values: a 15-minute access token, a 7-day refresh."""
+    assert ACCESS_TOKEN_TTL == timedelta(minutes=15)
+    assert REFRESH_TOKEN_TTL == timedelta(days=7)
+    assert ACCESS_TOKEN_TTL < REFRESH_TOKEN_TTL
 
 
 def test_sandbox_credential_outlives_a_full_length_run():
