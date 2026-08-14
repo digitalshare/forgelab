@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated
@@ -11,11 +12,18 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forgelab_api.db.session import get_session
+from forgelab_api.domains.constants import ProjectAction, ProjectRole
 from forgelab_api.domains.identity.models import RefreshSession
 from forgelab_api.domains.identity.tokens import (
     ExpiredTokenError,
     InvalidTokenError,
     decode_access_token,
+)
+from forgelab_api.domains.policy.rbac import (
+    AuthorizationDenied,
+    DenyReason,
+    ProjectContext,
+    authorize_project_action,
 )
 
 _UNAUTHENTICATED_HEADERS = {"WWW-Authenticate": "Bearer"}
@@ -84,3 +92,70 @@ async def get_current_actor(
 
 
 CurrentActor = Annotated[Actor, Depends(get_current_actor)]
+
+
+def require_project_roles(
+    *allowed_roles: ProjectRole,
+    action: ProjectAction,
+) -> Callable[..., Awaitable[ProjectContext]]:
+    """Build a dependency enforcing project membership and role for `action`.
+
+    Usage on any project-scoped route with a `project_id` path parameter::
+
+        @router.post("/projects/{project_id}/challenges")
+        async def launch(
+            context: Annotated[
+                ProjectContext,
+                Depends(require_project_roles(*ADMIN_ROLES,
+                                              action=ProjectAction.LAUNCH_CHALLENGE)),
+            ],
+        ) -> ...:
+
+    The handler receives a resolved `ProjectContext` and never repeats the
+    membership lookup. Roles are listed explicitly — there is no hierarchy, so
+    `require_project_roles(ProjectRole.MAINTAINER)` does **not** admit an Owner.
+
+    Status codes are chosen so a denial reveals as little as possible:
+
+    * ``404`` — the project does not exist, belongs to another tenant, or the
+      actor is not a member. All three are indistinguishable, so membership
+      cannot be used to enumerate projects.
+    * ``403`` — the actor is a member but holds the wrong role. Nothing is
+      leaked here that they could not already see.
+    """
+    if not allowed_roles:
+        raise ValueError("require_project_roles needs at least one role")
+
+    async def dependency(
+        project_id: uuid.UUID,
+        actor: CurrentActor,
+        session: Annotated[AsyncSession, Depends(get_session)],
+    ) -> ProjectContext:
+        try:
+            context = await authorize_project_action(
+                session,
+                actor_user_id=actor.user_id,
+                tenant_id=actor.tenant_id,
+                project_id=project_id,
+                action=action,
+                allowed_roles=allowed_roles,
+            )
+        except AuthorizationDenied as exc:
+            # Commit before raising: the handler never runs, so without this the
+            # record of the attempt would roll back with the request.
+            await session.commit()
+            if exc.reason is DenyReason.ROLE_NOT_PERMITTED:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="insufficient role for this action",
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
+            ) from exc
+
+        # The allow record is committed here too, so the decision is durable
+        # regardless of whether the handler later succeeds or fails.
+        await session.commit()
+        return context
+
+    return dependency

@@ -126,6 +126,29 @@ async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
 
 
 @pytest.fixture
+async def rbac_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """The app with the RBAC probe routes mounted.
+
+    The probe lives in the test package (see `tests/rbac_probe.py`) so a
+    permanently exposed endpoint is not shipped, but it is mounted onto a real
+    app instance here so the dependency is exercised through genuine routing.
+    """
+    from tests.rbac_probe import router as probe_router
+
+    app = create_app()
+    app.include_router(probe_router)
+
+    async def _session_override() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = _session_override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 async def api_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """An HTTP client for the app, sharing the test's database session.
 
