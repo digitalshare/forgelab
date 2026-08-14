@@ -10,6 +10,7 @@ uses arq because the rest of the stack is async-native.
 from arq.connections import RedisSettings
 
 from forgelab_api.core.config import get_settings
+from forgelab_api.domains.constants import SANDBOX_CREDENTIAL_TTL_SECONDS
 
 _settings = get_settings()
 
@@ -35,4 +36,5 @@ class WorkerSettings:
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(_settings.redis_url)
     max_jobs = 15
-    job_timeout = 20 * 60
+    # A job may not outlive the sandbox lease it was issued against.
+    job_timeout = SANDBOX_CREDENTIAL_TTL_SECONDS
