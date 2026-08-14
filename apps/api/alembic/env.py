@@ -11,10 +11,14 @@ from forgelab_api.core.config import get_settings
 from forgelab_api.db.base import Base
 
 # Domain models must be imported here for autogenerate to see them.
-# e.g. from forgelab_api.domains.identity import models
+from forgelab_api.domains.identity import models as identity_models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+
+# Honour a URL supplied by the caller (the integration-test harness sets one so
+# migrations apply to a throwaway database); otherwise fall back to settings.
+if not config.get_main_option("sqlalchemy.url", None):
+    config.set_main_option("sqlalchemy.url", get_settings().database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
