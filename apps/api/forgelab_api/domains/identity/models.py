@@ -54,6 +54,7 @@ from forgelab_api.db.base import (
 )
 from forgelab_api.domains.constants import (
     AuditAction,
+    AuditOutcome,
     ProjectAction,
     ProjectRole,
     SupportedLanguage,
@@ -250,6 +251,8 @@ class AuditEvent(UUIDPrimaryKeyMixin, TenantScopedMixin, Base):
         Index("ix_audit_events_tenant_created", "tenant_id", "created_at"),
         Index("ix_audit_events_project_created", "project_id", "created_at"),
         Index("ix_audit_events_run", "run_id"),
+        Index("ix_audit_events_request", "request_id"),
+        Index("ix_audit_events_action_outcome", "action", "outcome"),
     )
 
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -263,6 +266,14 @@ class AuditEvent(UUIDPrimaryKeyMixin, TenantScopedMixin, Base):
     action: Mapped[AuditAction] = mapped_column(
         _enum_column(AuditAction, "audit_action"), nullable=False
     )
+    #: Normalized outcome. Nullable only so rows written before WO-006 remain
+    #: valid; every new write sets it.
+    outcome: Mapped[AuditOutcome | None] = mapped_column(
+        _enum_column(AuditOutcome, "audit_outcome"), nullable=True
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Correlates every event emitted while handling one request.
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     event_metadata: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict
     )

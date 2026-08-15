@@ -1,5 +1,9 @@
 """Tenant-scoped data access for identity records.
 
+Audit events are *written* through `forgelab_api.domains.audit.writer`, not from
+here — a second write path would be a way to bypass redaction and validation.
+Reading them back is still this module's job.
+
 Every read here filters on `tenant_id`, and it is a required argument rather
 than something inferred from ambient state — a caller cannot forget to pass it.
 Isolation is logical, not enforced by the database, so these helpers are the
@@ -20,7 +24,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from forgelab_api.domains.constants import AuditAction, ProjectAction
+from forgelab_api.domains.constants import ProjectAction
 from forgelab_api.domains.identity.models import (
     AuditEvent,
     MembershipStatus,
@@ -232,31 +236,6 @@ async def revoke_refresh_session(
 # --------------------------------------------------------------------------
 # Audit events and policy decisions
 # --------------------------------------------------------------------------
-
-
-async def record_audit_event(
-    session: AsyncSession,
-    *,
-    tenant_id: uuid.UUID,
-    action: AuditAction,
-    actor_user_id: uuid.UUID | None = None,
-    project_id: uuid.UUID | None = None,
-    challenge_id: uuid.UUID | None = None,
-    run_id: uuid.UUID | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> AuditEvent:
-    event = AuditEvent(
-        tenant_id=tenant_id,
-        action=action,
-        actor_user_id=actor_user_id,
-        project_id=project_id,
-        challenge_id=challenge_id,
-        run_id=run_id,
-        event_metadata=metadata or {},
-    )
-    session.add(event)
-    await session.flush()
-    return event
 
 
 async def list_audit_events(

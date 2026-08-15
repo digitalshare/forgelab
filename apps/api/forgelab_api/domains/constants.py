@@ -40,6 +40,7 @@ __all__ = [
     "ProjectAction",
     "SENSITIVE_ACTIONS",
     "AuditAction",
+    "AuditOutcome",
     "RunBoundBreach",
     "UnsupportedValueError",
     "is_supported_language",
@@ -185,6 +186,22 @@ class AuditAction(StrEnum):
     SESSION_REFRESHED = "session.refreshed"
     SESSION_REVOKED = "session.revoked"
     SESSION_REPLAY_DETECTED = "session.replay_detected"
+    SESSION_DENIED = "session.denied"
+
+
+class AuditOutcome(StrEnum):
+    """What happened, normalized across every kind of audited event.
+
+    `DENY` is a decision that was evaluated and refused; `FAILURE` is an attempt
+    that could not be evaluated at all — a malformed token, an unknown session.
+    Collapsing them would make "was this refused, or did it break?" unanswerable
+    from the audit trail.
+    """
+
+    PERMIT = "permit"
+    DENY = "deny"
+    FAILURE = "failure"
+    SYSTEM = "system"
 
 
 class RunBoundBreach(StrEnum):

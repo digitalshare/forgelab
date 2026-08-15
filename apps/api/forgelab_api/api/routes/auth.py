@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from forgelab_api.api.dependencies import CurrentActor
 from forgelab_api.core.config import Settings, get_settings
+from forgelab_api.core.request_context import get_request_id
 from forgelab_api.db.session import get_session
 from forgelab_api.domains.constants import ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS
 from forgelab_api.domains.identity import service as identity_service
@@ -110,6 +111,7 @@ async def login(
             enabled=settings.bootstrap_login_enabled,
             user_agent=_user_agent(request),
             ip_address=_client_ip(request),
+            request_id=get_request_id(request),
         )
     except identity_service.BootstrapDisabledError as exc:
         raise HTTPException(
@@ -117,6 +119,10 @@ async def login(
             detail="bootstrap login is disabled in this environment",
         ) from exc
     except identity_service.AuthenticationError as exc:
+        # Commit before raising: the failed-login audit record was written into
+        # this transaction, and rejecting the request must not discard the
+        # evidence that someone tried.
+        await session.commit()
         raise _unauthenticated(str(exc)) from exc
 
     await session.commit()
@@ -147,6 +153,7 @@ async def refresh(
             refresh_token=token,
             user_agent=_user_agent(request),
             ip_address=_client_ip(request),
+            request_id=get_request_id(request),
         )
     except identity_service.AuthenticationError as exc:
         # Commit first: a detected replay revokes the user's sessions, and that
@@ -176,7 +183,9 @@ async def logout(
     token = request.cookies.get(settings.refresh_cookie_name)
     revoked = False
     if token:
-        revoked = await identity_service.logout(session, refresh_token=token)
+        revoked = await identity_service.logout(
+            session, refresh_token=token, request_id=get_request_id(request)
+        )
         await session.commit()
 
     _clear_refresh_cookie(response, settings)

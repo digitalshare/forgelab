@@ -9,6 +9,7 @@ from forgelab_api import __version__
 from forgelab_api.api.router import api_router
 from forgelab_api.core.config import get_settings
 from forgelab_api.core.redis import pool
+from forgelab_api.core.request_context import RequestContextMiddleware
 from forgelab_api.db.session import engine
 
 
@@ -28,6 +29,9 @@ def create_app() -> FastAPI:
         description="Runs three AI agents against one challenge in isolated Daytona sandboxes.",
         lifespan=lifespan,
     )
+
+    # Outermost: every later layer, including audit writes, sees the identifier.
+    app.add_middleware(RequestContextMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

@@ -25,7 +25,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from forgelab_api.domains.constants import REFRESH_TOKEN_TTL, AuditAction
+from forgelab_api.domains.audit import writer as audit
+from forgelab_api.domains.constants import REFRESH_TOKEN_TTL, AuditAction, AuditOutcome
 from forgelab_api.domains.identity import repository as identity_repo
 from forgelab_api.domains.identity.models import RefreshSession, Tenant, User
 from forgelab_api.domains.identity.tokens import (
@@ -120,6 +121,7 @@ async def bootstrap_login(
     enabled: bool,
     user_agent: str | None = None,
     ip_address: str | None = None,
+    request_id: str | None = None,
     now: datetime | None = None,
 ) -> IssuedSession:
     """Issue a session for a known active user.
@@ -146,16 +148,31 @@ async def bootstrap_login(
 
     user = await identity_repo.get_user_by_email(session, tenant_id=tenant.id, email=email)
     if user is None or not user.is_active:
+        # The tenant resolved, so the attempt can be attributed somewhere. The
+        # actor stays null: not knowing who tried is what makes this a failure.
+        # Note the email is not recorded — a failed login is not a reason to
+        # accumulate addresses supplied by unauthenticated callers.
+        await audit.record_event(
+            session,
+            tenant_id=tenant.id,
+            action=AuditAction.SESSION_DENIED,
+            outcome=AuditOutcome.FAILURE,
+            request_id=request_id,
+            reason="no active user matched the supplied credentials",
+            metadata={"method": "bootstrap"},
+        )
         raise AuthenticationError("unknown tenant or user")
 
     issued = await _issue_session(
         session, user=user, now=moment, user_agent=user_agent, ip_address=ip_address
     )
-    await identity_repo.record_audit_event(
+    await audit.record_event(
         session,
         tenant_id=user.tenant_id,
         action=AuditAction.SESSION_ISSUED,
+        outcome=AuditOutcome.PERMIT,
         actor_user_id=user.id,
+        request_id=request_id,
         metadata={"session_id": str(issued.session_id), "method": "bootstrap"},
     )
     return issued
@@ -167,6 +184,7 @@ async def rotate_refresh_session(
     refresh_token: str,
     user_agent: str | None = None,
     ip_address: str | None = None,
+    request_id: str | None = None,
     now: datetime | None = None,
 ) -> IssuedSession:
     """Exchange a refresh token for a new session, invalidating the old one.
@@ -186,20 +204,43 @@ async def rotate_refresh_session(
         await revoke_all_sessions_for_user(
             session, tenant_id=record.tenant_id, user_id=record.user_id, now=moment
         )
-        await identity_repo.record_audit_event(
+        await audit.record_event(
             session,
             tenant_id=record.tenant_id,
             action=AuditAction.SESSION_REPLAY_DETECTED,
+            outcome=AuditOutcome.DENY,
             actor_user_id=record.user_id,
+            request_id=request_id,
+            reason="refresh token was already rotated; session lineage revoked",
             metadata={"session_id": str(record.id)},
         )
         raise AuthenticationError("refresh token has already been used")
 
     if record.expires_at <= moment:
+        await audit.record_event(
+            session,
+            tenant_id=record.tenant_id,
+            action=AuditAction.SESSION_DENIED,
+            outcome=AuditOutcome.FAILURE,
+            actor_user_id=record.user_id,
+            request_id=request_id,
+            reason="refresh token has expired",
+            metadata={"session_id": str(record.id)},
+        )
         raise AuthenticationError("refresh token has expired")
 
     user = await session.get(User, record.user_id)
     if user is None or not user.is_active:
+        await audit.record_event(
+            session,
+            tenant_id=record.tenant_id,
+            action=AuditAction.SESSION_DENIED,
+            outcome=AuditOutcome.FAILURE,
+            actor_user_id=record.user_id,
+            request_id=request_id,
+            reason="user is no longer active",
+            metadata={"session_id": str(record.id)},
+        )
         raise AuthenticationError("user is no longer active")
 
     record.revoked_at = moment
@@ -208,11 +249,13 @@ async def rotate_refresh_session(
     issued = await _issue_session(
         session, user=user, now=moment, user_agent=user_agent, ip_address=ip_address
     )
-    await identity_repo.record_audit_event(
+    await audit.record_event(
         session,
         tenant_id=user.tenant_id,
         action=AuditAction.SESSION_REFRESHED,
+        outcome=AuditOutcome.PERMIT,
         actor_user_id=user.id,
+        request_id=request_id,
         metadata={"previous_session_id": str(record.id), "session_id": str(issued.session_id)},
     )
     return issued
@@ -240,6 +283,7 @@ async def logout(
     session: AsyncSession,
     *,
     refresh_token: str,
+    request_id: str | None = None,
     now: datetime | None = None,
 ) -> bool:
     """Revoke the session behind a refresh token.
@@ -255,11 +299,13 @@ async def logout(
 
     record.revoked_at = moment
     await session.flush()
-    await identity_repo.record_audit_event(
+    await audit.record_event(
         session,
         tenant_id=record.tenant_id,
         action=AuditAction.SESSION_REVOKED,
+        outcome=AuditOutcome.PERMIT,
         actor_user_id=record.user_id,
+        request_id=request_id,
         metadata={"session_id": str(record.id)},
     )
     return True

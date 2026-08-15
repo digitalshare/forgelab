@@ -15,7 +15,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from forgelab_api.domains.constants import AuditAction, ProjectAction, ProjectRole
+from forgelab_api.domains.audit import writer as audit
+from forgelab_api.domains.constants import AuditAction, AuditOutcome, ProjectAction, ProjectRole
 from forgelab_api.domains.identity import repository as identity_repo
 from forgelab_api.domains.identity.models import (
     AuditEvent,
@@ -466,10 +467,11 @@ async def test_audit_event_round_trips_with_metadata(
     db_session: AsyncSession, identity: IdentityFixture
 ):
     run_id = uuid.uuid4()
-    event = await identity_repo.record_audit_event(
+    event = await audit.record_event(
         db_session,
         tenant_id=identity.alpha.tenant.id,
         action=AuditAction.CHALLENGE_LAUNCHED,
+        outcome=AuditOutcome.PERMIT,
         actor_user_id=identity.alpha.owner.id,
         project_id=identity.alpha.project.id,
         run_id=run_id,
@@ -488,10 +490,11 @@ async def test_audit_event_round_trips_with_metadata(
 async def test_system_audit_event_needs_no_actor(
     db_session: AsyncSession, identity: IdentityFixture
 ):
-    event = await identity_repo.record_audit_event(
+    event = await audit.record_event(
         db_session,
         tenant_id=identity.alpha.tenant.id,
         action=AuditAction.SANDBOX_DESTROYED,
+        outcome=AuditOutcome.SYSTEM,
         metadata={"reason": "ttl"},
     )
     assert event.actor_user_id is None
@@ -529,8 +532,11 @@ async def test_every_audit_action_value_is_accepted_by_the_database(
     catch it until the first insert fails in production.
     """
     for action in AuditAction:
-        await identity_repo.record_audit_event(
-            db_session, tenant_id=identity.alpha.tenant.id, action=action
+        await audit.record_event(
+            db_session,
+            tenant_id=identity.alpha.tenant.id,
+            action=action,
+            outcome=AuditOutcome.SYSTEM,
         )
     await db_session.flush()
 
@@ -551,10 +557,11 @@ async def test_every_project_action_value_is_accepted_by_the_database(
 async def test_audit_listing_can_narrow_to_one_project(
     db_session: AsyncSession, identity: IdentityFixture
 ):
-    await identity_repo.record_audit_event(
+    await audit.record_event(
         db_session,
         tenant_id=identity.alpha.tenant.id,
         action=AuditAction.CREDENTIAL_ISSUED,
+        outcome=AuditOutcome.SYSTEM,
         project_id=None,
     )
     scoped = await identity_repo.list_audit_events(
