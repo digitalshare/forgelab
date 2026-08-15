@@ -187,6 +187,7 @@ class AuditAction(StrEnum):
     SESSION_REVOKED = "session.revoked"
     SESSION_REPLAY_DETECTED = "session.replay_detected"
     SESSION_DENIED = "session.denied"
+    POLICY_EVALUATED = "policy.evaluated"
 
 
 class AuditOutcome(StrEnum):

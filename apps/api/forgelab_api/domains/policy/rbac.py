@@ -32,12 +32,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from forgelab_api.domains.constants import ProjectAction, ProjectRole
 from forgelab_api.domains.identity import repository as identity_repo
 from forgelab_api.domains.identity.models import PolicyDecisionOutcome
+from forgelab_api.domains.policy import rules as policy_rules
 
-#: Roles that administer a project.
-ADMIN_ROLES: tuple[ProjectRole, ...] = (ProjectRole.OWNER, ProjectRole.MAINTAINER)
+#: Roles that administer a project. Derived from the policy matrix rather than
+#: restated, so the two cannot disagree about who counts as an administrator.
+ADMIN_ROLES: tuple[ProjectRole, ...] = policy_rules.roles_for(ProjectAction.CONNECT_REPOSITORY)
 
 #: Every role. Use when membership alone is the requirement.
 ALL_ROLES: tuple[ProjectRole, ...] = tuple(ProjectRole)
+
+#: Prefer this over listing roles by hand on a policy-governed endpoint: it
+#: reads the authoritative matrix in `policy.rules`, so RBAC and policy cannot
+#: disagree about who may attempt an action.
+roles_for = policy_rules.roles_for
 
 
 class DenyReason(StrEnum):
@@ -70,6 +77,45 @@ class AuthorizationDenied(Exception):
         self.reason = reason
 
 
+async def resolve_project_context(
+    session: AsyncSession,
+    *,
+    actor_user_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    project_id: uuid.UUID,
+    action: ProjectAction,
+) -> ProjectContext | None:
+    """Resolve membership without deciding anything, or None if there is none.
+
+    Shared by `authorize_project_action`, which turns None into a refusal, and
+    by the policy service, which needs a verdict rather than an exception —
+    asking "may I open a pull request?" must be answerable with "no, because
+    your role cannot", not met with a raised error.
+
+    Tenant scoping happens in the project lookup, so a project in another tenant
+    is simply not found.
+    """
+    project = await identity_repo.get_project(
+        session, tenant_id=tenant_id, project_id=project_id
+    )
+    if project is None:
+        return None
+
+    membership = await identity_repo.get_active_membership(
+        session, tenant_id=tenant_id, project_id=project_id, user_id=actor_user_id
+    )
+    if membership is None:
+        return None
+
+    return ProjectContext(
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        role=membership.role,
+        action=action,
+    )
+
+
 async def authorize_project_action(
     session: AsyncSession,
     *,
@@ -89,12 +135,14 @@ async def authorize_project_action(
     Raises:
         AuthorizationDenied: the actor may not perform this action here.
     """
-    # Tenant scoping happens here, in the lookup — a project in another tenant
-    # is simply not found, rather than found and then rejected.
-    project = await identity_repo.get_project(
-        session, tenant_id=tenant_id, project_id=project_id
+    context = await resolve_project_context(
+        session,
+        actor_user_id=actor_user_id,
+        tenant_id=tenant_id,
+        project_id=project_id,
+        action=action,
     )
-    if project is None:
+    if context is None:
         await _record(
             session,
             tenant_id=tenant_id,
@@ -108,24 +156,7 @@ async def authorize_project_action(
         )
         raise AuthorizationDenied(DenyReason.PROJECT_NOT_FOUND)
 
-    membership = await identity_repo.get_active_membership(
-        session, tenant_id=tenant_id, project_id=project_id, user_id=actor_user_id
-    )
-    if membership is None:
-        await _record(
-            session,
-            tenant_id=tenant_id,
-            actor_user_id=actor_user_id,
-            project_id=project_id,
-            action=action,
-            outcome=PolicyDecisionOutcome.DENY,
-            reason=DenyReason.PROJECT_NOT_FOUND,
-            role=None,
-            allowed_roles=allowed_roles,
-        )
-        raise AuthorizationDenied(DenyReason.PROJECT_NOT_FOUND)
-
-    if membership.role not in allowed_roles:
+    if context.role not in allowed_roles:
         await _record(
             session,
             tenant_id=tenant_id,
@@ -134,7 +165,7 @@ async def authorize_project_action(
             action=action,
             outcome=PolicyDecisionOutcome.DENY,
             reason=DenyReason.ROLE_NOT_PERMITTED,
-            role=membership.role,
+            role=context.role,
             allowed_roles=allowed_roles,
         )
         raise AuthorizationDenied(DenyReason.ROLE_NOT_PERMITTED)
@@ -147,16 +178,10 @@ async def authorize_project_action(
         action=action,
         outcome=PolicyDecisionOutcome.ALLOW,
         reason=None,
-        role=membership.role,
+        role=context.role,
         allowed_roles=allowed_roles,
     )
-    return ProjectContext(
-        actor_user_id=actor_user_id,
-        tenant_id=tenant_id,
-        project_id=project_id,
-        role=membership.role,
-        action=action,
-    )
+    return context
 
 
 async def _record(
