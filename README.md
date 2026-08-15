@@ -32,7 +32,7 @@ rather than reaching into each other's internals.
 
 | Layer | Choice |
 |---|---|
-| Frontend | Next.js (App Router), React 19, Tailwind 4, SSE for live updates |
+| Frontend | Next.js 16 (App Router), React 19, Tailwind 4, SSE for live updates |
 | Backend | FastAPI, Python 3.12, SQLAlchemy 2 (async), Alembic |
 | Worker | arq |
 | Data | PostgreSQL 16, Redis 7 Streams |
