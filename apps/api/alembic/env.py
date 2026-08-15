@@ -11,6 +11,7 @@ from forgelab_api.core.config import get_settings
 from forgelab_api.db.base import Base
 
 # Domain models must be imported here for autogenerate to see them.
+from forgelab_api.domains.challenges import models as challenge_models  # noqa: F401
 from forgelab_api.domains.identity import models as identity_models  # noqa: F401
 
 config = context.config

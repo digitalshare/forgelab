@@ -39,9 +39,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy import (
-    Enum as SAEnum,
-)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -51,6 +48,7 @@ from forgelab_api.db.base import (
     TenantScopedMixin,
     TimestampMixin,
     UUIDPrimaryKeyMixin,
+    enum_column,
 )
 from forgelab_api.domains.constants import (
     AuditAction,
@@ -82,24 +80,6 @@ class PolicyDecisionOutcome(StrEnum):
 
     ALLOW = "allow"
     DENY = "deny"
-
-
-def _enum_column(enum_cls: type[StrEnum], name: str) -> SAEnum:
-    """Store a StrEnum as its value in a length-bounded, CHECK-constrained column.
-
-    `create_constraint=True` is required — SQLAlchemy defaults it to False, which
-    would leave a bare VARCHAR that accepts any string. The Python enum only
-    guards writes going through the ORM; the CHECK also covers raw SQL, data
-    loads, and any future service that bypasses these models.
-    """
-    return SAEnum(
-        enum_cls,
-        name=name,
-        native_enum=False,
-        create_constraint=True,
-        length=64,
-        values_callable=lambda members: [member.value for member in members],
-    )
 
 
 class Tenant(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -171,10 +151,10 @@ class ProjectMembership(UUIDPrimaryKeyMixin, TenantScopedMixin, TimestampMixin, 
         nullable=False,
     )
     role: Mapped[ProjectRole] = mapped_column(
-        _enum_column(ProjectRole, "project_role"), nullable=False
+        enum_column(ProjectRole, "project_role"), nullable=False
     )
     status: Mapped[MembershipStatus] = mapped_column(
-        _enum_column(MembershipStatus, "membership_status"),
+        enum_column(MembershipStatus, "membership_status"),
         nullable=False,
         default=MembershipStatus.ACTIVE,
     )
@@ -203,10 +183,10 @@ class RepositoryConnection(UUIDPrimaryKeyMixin, TenantScopedMixin, TimestampMixi
     default_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
     installation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     language: Mapped[SupportedLanguage | None] = mapped_column(
-        _enum_column(SupportedLanguage, "supported_language"), nullable=True
+        enum_column(SupportedLanguage, "supported_language"), nullable=True
     )
     status: Mapped[RepositoryConnectionStatus] = mapped_column(
-        _enum_column(RepositoryConnectionStatus, "repository_connection_status"),
+        enum_column(RepositoryConnectionStatus, "repository_connection_status"),
         nullable=False,
         default=RepositoryConnectionStatus.PENDING,
     )
@@ -264,12 +244,12 @@ class AuditEvent(UUIDPrimaryKeyMixin, TenantScopedMixin, Base):
     challenge_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     run_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     action: Mapped[AuditAction] = mapped_column(
-        _enum_column(AuditAction, "audit_action"), nullable=False
+        enum_column(AuditAction, "audit_action"), nullable=False
     )
     #: Normalized outcome. Nullable only so rows written before WO-006 remain
     #: valid; every new write sets it.
     outcome: Mapped[AuditOutcome | None] = mapped_column(
-        _enum_column(AuditOutcome, "audit_outcome"), nullable=True
+        enum_column(AuditOutcome, "audit_outcome"), nullable=True
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: Correlates every event emitted while handling one request.
@@ -305,10 +285,10 @@ class PolicyDecision(UUIDPrimaryKeyMixin, TenantScopedMixin, Base):
     challenge_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     run_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     action: Mapped[ProjectAction] = mapped_column(
-        _enum_column(ProjectAction, "project_action"), nullable=False
+        enum_column(ProjectAction, "project_action"), nullable=False
     )
     decision: Mapped[PolicyDecisionOutcome] = mapped_column(
-        _enum_column(PolicyDecisionOutcome, "policy_decision_outcome"), nullable=False
+        enum_column(PolicyDecisionOutcome, "policy_decision_outcome"), nullable=False
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     decision_metadata: Mapped[dict[str, Any]] = mapped_column(
