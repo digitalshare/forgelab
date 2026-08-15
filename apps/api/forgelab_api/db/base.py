@@ -7,10 +7,34 @@ and their indexes stay consistent across the schema.
 
 import uuid
 from datetime import datetime
+from enum import StrEnum
 
 from sqlalchemy import DateTime, ForeignKey, func
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def enum_column(enum_cls: type[StrEnum], name: str) -> SAEnum:
+    """Store a StrEnum as its value in a length-bounded, CHECK-constrained column.
+
+    `create_constraint=True` is required — SQLAlchemy defaults it to False,
+    which would leave a bare VARCHAR accepting any string. The Python enum only
+    guards writes going through the ORM; the CHECK also covers raw SQL, data
+    loads, and any future service that bypasses these models.
+
+    Adding a member to an existing enum needs a hand-written migration: Alembic
+    does not detect drift in non-native enum constraints. See migration
+    a1c4e77b21d5 for a worked example.
+    """
+    return SAEnum(
+        enum_cls,
+        name=name,
+        native_enum=False,
+        create_constraint=True,
+        length=64,
+        values_callable=lambda members: [member.value for member in members],
+    )
 
 
 class Base(DeclarativeBase):

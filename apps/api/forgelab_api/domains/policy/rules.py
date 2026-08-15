@@ -21,27 +21,29 @@ import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from forgelab_api.domains.constants import MVP_AGENT_COUNT, ProjectAction, ProjectRole
+from forgelab_api.domains.constants import (
+    MVP_AGENT_COUNT,
+    ChallengeState,
+    ProjectAction,
+    ProjectRole,
+    RunState,
+)
 
-
-class ChallengeState(StrEnum):
-    """Where a challenge is in its lifecycle."""
-
-    DRAFT = "draft"
-    RUNNING = "running"
-    EVALUATING = "evaluating"
-    COMPLETE = "complete"
-    FAILED = "failed"
-
-
-class RunState(StrEnum):
-    """Where a single agent run is in its lifecycle."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    TERMINATED = "terminated"
+# Re-exported so existing callers and tests keep importing these from the rules
+# module. They are defined in `domains.constants` because the persisted status
+# columns use the same values — one vocabulary, not two.
+__all__ = [
+    "ChallengeState",
+    "RunState",
+    "ACTION_ROLES",
+    "ApprovalState",
+    "DenyCode",
+    "GateState",
+    "ResourceState",
+    "Verdict",
+    "evaluate",
+    "roles_for",
+]
 
 
 class DenyCode(StrEnum):

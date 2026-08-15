@@ -42,6 +42,10 @@ __all__ = [
     "AuditAction",
     "AuditOutcome",
     "RunBoundBreach",
+    "ChallengeState",
+    "RunState",
+    "ChallengeSource",
+    "ArtifactKind",
     "UnsupportedValueError",
     "is_supported_language",
     "parse_language",
@@ -203,6 +207,55 @@ class AuditOutcome(StrEnum):
     DENY = "deny"
     FAILURE = "failure"
     SYSTEM = "system"
+
+
+class ChallengeState(StrEnum):
+    """Where a challenge is in its lifecycle.
+
+    Shared by the persisted `challenges.status` column and the policy rules, so
+    the two cannot drift into different vocabularies for the same lifecycle.
+    """
+
+    DRAFT = "draft"
+    RUNNING = "running"
+    EVALUATING = "evaluating"
+    COMPLETE = "complete"
+    FAILED = "failed"
+
+
+class RunState(StrEnum):
+    """Where a single agent run is in its lifecycle."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    TERMINATED = "terminated"
+
+
+class ChallengeSource(StrEnum):
+    """How a challenge entered the system.
+
+    The three MVP intake modes. Anything else is out of scope for v0.1.
+    """
+
+    GITHUB_ISSUE = "github_issue"
+    MANUAL = "manual"
+    SAMPLE = "sample"
+
+
+class ArtifactKind(StrEnum):
+    """What an artifact reference points at.
+
+    Only metadata is stored in PostgreSQL; anything over ~1 MB lives in object
+    storage and is referenced by URI.
+    """
+
+    PATCH = "patch"
+    DIFF = "diff"
+    LOG = "log"
+    TEST_REPORT = "test_report"
+    PREVIEW = "preview"
 
 
 class RunBoundBreach(StrEnum):
